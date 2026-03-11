@@ -88,9 +88,9 @@ def fetch_page(url, retries=3, delay=1.0):
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
     for attempt in range(retries):
+        start = time.time()
         try:
             print(f"  [HTTP] GET {url} ...")
-            start = time.time()
             req = Request(url, headers=headers)
             with urlopen(req, timeout=30) as resp:
                 data = resp.read().decode("utf-8", errors="replace")
