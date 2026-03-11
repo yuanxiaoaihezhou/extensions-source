@@ -62,15 +62,13 @@ class AcgxmhCos : ParsedHttpSource() {
 
     private val searchIndex: SearchIndex? by lazy { loadSearchIndex() }
 
-    private fun loadSearchIndex(): SearchIndex? {
-        return try {
-            val context = Injekt.get<Application>()
-            val inputStream = context.assets.open("index.json")
-            val jsonStr = inputStream.bufferedReader().use { it.readText() }
-            json.decodeFromString<SearchIndex>(jsonStr)
-        } catch (_: Exception) {
-            null
-        }
+    private fun loadSearchIndex(): SearchIndex? = try {
+        val context = Injekt.get<Application>()
+        val inputStream = context.assets.open("index.json")
+        val jsonStr = inputStream.bufferedReader().use { it.readText() }
+        json.decodeFromString<SearchIndex>(jsonStr)
+    } catch (_: Exception) {
+        null
     }
 
     override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {

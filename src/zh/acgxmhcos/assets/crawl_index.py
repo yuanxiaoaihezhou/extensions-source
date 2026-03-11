@@ -16,6 +16,7 @@ Options:
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -87,15 +88,22 @@ def fetch_page(url, retries=3, delay=1.0):
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
     for attempt in range(retries):
+        start = time.time()
         try:
+            print(f"  [HTTP] GET {url} ...")
             req = Request(url, headers=headers)
             with urlopen(req, timeout=30) as resp:
-                return resp.read().decode("utf-8", errors="replace")
+                data = resp.read().decode("utf-8", errors="replace")
+                elapsed = time.time() - start
+                print(f"  [HTTP] {resp.status} OK  ({len(data)} bytes, {elapsed:.1f}s)")
+                return data
         except Exception as e:
+            elapsed = time.time() - start
             if attempt < retries - 1:
-                print(f"  Retry {attempt + 1}/{retries} for {url}: {e}")
+                print(f"  [WARN] Retry {attempt + 1}/{retries} after {elapsed:.1f}s: {e}")
                 time.sleep(delay * (attempt + 1))
             else:
+                print(f"  [ERROR] Failed after {retries} attempts: {e}")
                 raise
 
 
@@ -103,9 +111,12 @@ def crawl_index(base_url="https://www.acgxmh.com", max_pages=0, delay=1.0):
     """Crawl all listing pages and return entries."""
     all_entries = []
     seen_ids = set()
+    crawl_start = time.time()
 
     # Fetch first page to determine total pages
-    print("Fetching page 1...")
+    print(f"\n{'='*60}")
+    print(f"[PAGE 1] Fetching first page to discover total pages ...")
+    print(f"{'='*60}")
     html = fetch_page(f"{base_url}/cos/")
     parser = CosListParser()
     parser.feed(html)
@@ -119,11 +130,22 @@ def crawl_index(base_url="https://www.acgxmh.com", max_pages=0, delay=1.0):
     if max_pages > 0:
         total_pages = min(total_pages, max_pages)
 
-    print(f"Found {len(parser.entries)} entries on page 1. Total pages: {total_pages}")
+    print(f"[INFO] Page 1: found {len(parser.entries)} entries")
+    print(f"[INFO] Total pages to crawl: {total_pages}")
+    print(f"[INFO] Estimated time: ~{total_pages * (delay + 1):.0f}s "
+          f"(delay={delay}s per page)")
 
     # Fetch remaining pages
     for page in range(2, total_pages + 1):
-        print(f"Fetching page {page}/{total_pages}...")
+        elapsed = time.time() - crawl_start
+        remaining_pages = total_pages - page + 1
+        eta = remaining_pages * (elapsed / (page - 1))
+
+        print(f"\n[PAGE {page}/{total_pages}] "
+              f"Progress: {(page - 1) / total_pages * 100:.1f}%  |  "
+              f"Entries: {len(all_entries)}  |  "
+              f"Elapsed: {elapsed:.0f}s  |  "
+              f"ETA: {eta:.0f}s")
         try:
             html = fetch_page(f"{base_url}/cos/index-{page}.html")
             parser = CosListParser()
@@ -136,11 +158,20 @@ def crawl_index(base_url="https://www.acgxmh.com", max_pages=0, delay=1.0):
                     all_entries.append(entry)
                     new_count += 1
 
-            print(f"  Found {new_count} new entries (total: {len(all_entries)})")
+            dup_count = len(parser.entries) - new_count
+            print(f"  [OK] +{new_count} new entries"
+                  f"{f', {dup_count} duplicates skipped' if dup_count else ''}"
+                  f"  (total: {len(all_entries)})")
         except Exception as e:
-            print(f"  Error on page {page}: {e}")
+            print(f"  [ERROR] Page {page} failed: {e}")
 
         time.sleep(delay)
+
+    total_elapsed = time.time() - crawl_start
+    print(f"\n{'='*60}")
+    print(f"[DONE] Crawled {total_pages} pages in {total_elapsed:.1f}s")
+    print(f"[DONE] Total unique entries: {len(all_entries)}")
+    print(f"{'='*60}")
 
     return all_entries
 
@@ -152,7 +183,10 @@ def main():
     argparser.add_argument("--delay", type=float, default=1.0, help="Delay between requests (seconds)")
     args = argparser.parse_args()
 
-    print(f"Starting crawl (max_pages={args.max_pages}, delay={args.delay}s)")
+    print(f"\n{'='*60}")
+    print(f"[START] ACGXmh Cosplay Index Builder")
+    print(f"[CONFIG] max_pages={args.max_pages}, delay={args.delay}s, output={args.output}")
+    print(f"{'='*60}")
     entries = crawl_index(max_pages=args.max_pages, delay=args.delay)
 
     # Sort by ID descending (newest first)
@@ -168,7 +202,11 @@ def main():
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
-    print(f"\nDone! Wrote {len(entries)} entries to {args.output}")
+    file_size = os.path.getsize(args.output)
+    print(f"\n[SAVED] {args.output}  ({len(entries)} entries, {file_size / 1024:.1f} KB)")
+    print(f"[TIP] Copy this file to:")
+    print(f"       src/zh/acgxmhcos/assets/index.json")
+    print(f"       Then rebuild the extension to include the search index.")
     return 0
 
 
