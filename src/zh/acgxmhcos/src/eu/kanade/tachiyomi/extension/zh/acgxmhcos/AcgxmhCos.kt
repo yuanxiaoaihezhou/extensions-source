@@ -195,10 +195,8 @@ class AcgxmhCos : ParsedHttpSource() {
         return match?.groupValues?.get(1)?.toIntOrNull() ?: 1
     }
 
-    override fun imageUrlParse(document: Document): String {
-        return document.selectFirst("p.manga-picture img")?.attr("src")
-            ?: throw Exception("Image not found on page")
-    }
+    override fun imageUrlParse(document: Document): String = document.selectFirst("p.manga-picture img")?.attr("src")
+        ?: throw Exception("Image not found on page")
 
     // ============================== Data classes ==============================
 
