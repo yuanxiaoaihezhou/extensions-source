@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.zh.acgxmhcos
 
-import android.app.Application
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -10,13 +9,12 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.ParsedHttpSource
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromStream
 import okhttp3.Headers
 import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import rx.Observable
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 
 class AcgxmhCos : ParsedHttpSource() {
 
@@ -63,10 +61,9 @@ class AcgxmhCos : ParsedHttpSource() {
     private val searchIndex: SearchIndex? by lazy { loadSearchIndex() }
 
     private fun loadSearchIndex(): SearchIndex? = try {
-        val context = Injekt.get<Application>()
-        val inputStream = context.assets.open("index.json")
-        val jsonStr = inputStream.bufferedReader().use { it.readText() }
-        json.decodeFromString<SearchIndex>(jsonStr)
+        javaClass.getResourceAsStream("/assets/index.json")?.use { stream ->
+            json.decodeFromStream<SearchIndex>(stream)
+        }
     } catch (_: Exception) {
         null
     }
