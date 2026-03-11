@@ -164,16 +164,12 @@ class AcgxmhCos : ParsedHttpSource() {
 
         if (totalPages <= 1) return pages
 
-        val lastSlashIndex = firstImg.lastIndexOf('/')
-        if (lastSlashIndex == -1) return pages
-
-        val baseImgUrl = firstImg.substring(0, lastSlashIndex + 1)
-        val extension = firstImg.substringAfterLast('.')
+        val docUrl = document.location()
+        val basePageUrl = docUrl.replace(Regex("-\\d+\\.html$"), "").removeSuffix(".html")
 
         for (i in 2..totalPages) {
-            val imgNum = String.format("%02d", i)
-            val imageUrl = "$baseImgUrl$imgNum.$extension"
-            pages.add(Page(i - 1, imageUrl = imageUrl))
+            val pageUrl = "$basePageUrl-$i.html"
+            pages.add(Page(i - 1, url = pageUrl))
         }
 
         return pages
@@ -182,11 +178,16 @@ class AcgxmhCos : ParsedHttpSource() {
     private fun getTotalPages(document: Document): Int {
         val pageLinks = document.select("div.page#pages a")
         if (pageLinks.isNotEmpty()) {
-            val lastLink = pageLinks.last()?.attr("href") ?: return 1
-            val match = Regex("-(\\d+)\\.html$").find(lastLink)
-            if (match != null) {
-                return match.groupValues[1].toIntOrNull() ?: 1
+            var maxPage = 1
+            for (link in pageLinks) {
+                val href = link.attr("href")
+                val match = Regex("-(\\d+)\\.html").find(href)
+                if (match != null) {
+                    val pageNum = match.groupValues[1].toIntOrNull() ?: continue
+                    if (pageNum > maxPage) maxPage = pageNum
+                }
             }
+            if (maxPage > 1) return maxPage
         }
 
         val title = document.selectFirst("h1.title")?.text() ?: return 1
@@ -194,7 +195,9 @@ class AcgxmhCos : ParsedHttpSource() {
         return match?.groupValues?.get(1)?.toIntOrNull() ?: 1
     }
 
-    override fun imageUrlParse(document: Document) = throw UnsupportedOperationException()
+    override fun imageUrlParse(document: Document): String {
+        return document.selectFirst("p.manga-picture img")?.attr("src") ?: ""
+    }
 
     // ============================== Data classes ==============================
 
