@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.zh.acgxmhcos
 
+import android.app.Application
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -7,11 +8,15 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.ParsedHttpSource
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import rx.Observable
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
 class AcgxmhCos : ParsedHttpSource() {
 
@@ -22,6 +27,8 @@ class AcgxmhCos : ParsedHttpSource() {
     override val lang = "zh"
 
     override val supportsLatest = false
+
+    private val json = Json { ignoreUnknownKeys = true }
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .add("Referer", "$baseUrl/")
@@ -53,16 +60,59 @@ class AcgxmhCos : ParsedHttpSource() {
 
     // ============================== Search ==============================
 
+    private val searchIndex: SearchIndex? by lazy { loadSearchIndex() }
+
+    private fun loadSearchIndex(): SearchIndex? {
+        return try {
+            val context = Injekt.get<Application>()
+            val inputStream = context.assets.open("index.json")
+            val jsonStr = inputStream.bufferedReader().use { it.readText() }
+            json.decodeFromString<SearchIndex>(jsonStr)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
         if (query.isBlank()) {
             return fetchPopularManga(page)
         }
+
+        val index = searchIndex
+        if (index != null) {
+            return Observable.just(searchFromIndex(query, page, index))
+        }
+
         return fetchPopularManga(page).map { mangasPage ->
             val filtered = mangasPage.mangas.filter { manga ->
                 manga.title.contains(query, ignoreCase = true)
             }
             MangasPage(filtered, mangasPage.hasNextPage)
         }
+    }
+
+    private fun searchFromIndex(query: String, page: Int, index: SearchIndex): MangasPage {
+        val matched = index.entries.filter { entry ->
+            entry.title.contains(query, ignoreCase = true)
+        }
+        val pageSize = 36
+        val start = (page - 1) * pageSize
+        val end = minOf(start + pageSize, matched.size)
+        val hasNext = end < matched.size
+
+        val mangas = if (start < matched.size) {
+            matched.subList(start, end).map { entry ->
+                SManga.create().apply {
+                    url = "/cos/${entry.id}.html"
+                    title = entry.title
+                    thumbnail_url = entry.thumb
+                }
+            }
+        } else {
+            emptyList()
+        }
+
+        return MangasPage(mangas, hasNext)
     }
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList) = throw UnsupportedOperationException()
@@ -111,25 +161,20 @@ class AcgxmhCos : ParsedHttpSource() {
     override fun pageListParse(document: Document): List<Page> {
         val pages = mutableListOf<Page>()
 
-        // Get the first image from the current page
         val firstImg = document.selectFirst("p.manga-picture img")?.attr("src")
             ?: return emptyList()
         pages.add(Page(0, imageUrl = firstImg))
 
-        // Determine total page count from pagination
         val totalPages = getTotalPages(document)
 
         if (totalPages <= 1) return pages
 
-        // The image URL pattern: base/01.webp, base/02.webp, etc.
-        // Extract the base URL and file extension from the first image
         val lastSlashIndex = firstImg.lastIndexOf('/')
         if (lastSlashIndex == -1) return pages
 
         val baseImgUrl = firstImg.substring(0, lastSlashIndex + 1)
         val extension = firstImg.substringAfterLast('.')
 
-        // Generate all remaining page image URLs
         for (i in 2..totalPages) {
             val imgNum = String.format("%02d", i)
             val imageUrl = "$baseImgUrl$imgNum.$extension"
@@ -140,22 +185,33 @@ class AcgxmhCos : ParsedHttpSource() {
     }
 
     private fun getTotalPages(document: Document): Int {
-        // Try to extract from pagination: last page link like /cos/764811-30.html
         val pageLinks = document.select("div.page#pages a")
         if (pageLinks.isNotEmpty()) {
             val lastLink = pageLinks.last()?.attr("href") ?: return 1
-            // Pattern: /cos/{id}-{pageNum}.html
             val match = Regex("-(\\d+)\\.html$").find(lastLink)
             if (match != null) {
                 return match.groupValues[1].toIntOrNull() ?: 1
             }
         }
 
-        // Try to extract from title like [30P]
         val title = document.selectFirst("h1.title")?.text() ?: return 1
         val match = Regex("\\[(\\d+)P\\]").find(title)
         return match?.groupValues?.get(1)?.toIntOrNull() ?: 1
     }
 
     override fun imageUrlParse(document: Document) = throw UnsupportedOperationException()
+
+    // ============================== Data classes ==============================
+
+    @Serializable
+    data class SearchIndex(
+        val entries: List<SearchEntry> = emptyList(),
+    )
+
+    @Serializable
+    data class SearchEntry(
+        val id: Int,
+        val title: String,
+        val thumb: String = "",
+    )
 }
