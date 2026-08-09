@@ -158,13 +158,14 @@ class AcgxmhCos : ParsedHttpSource() {
 
         val firstImg = document.selectFirst("p.manga-picture img")?.attr("src")
             ?: return emptyList()
-        pages.add(Page(0, imageUrl = firstImg))
+
+        val docUrl = document.location()
+        pages.add(Page(0, url = docUrl, imageUrl = firstImg))
 
         val totalPages = getTotalPages(document)
 
         if (totalPages <= 1) return pages
 
-        val docUrl = document.location()
         val basePageUrl = docUrl.replace(Regex("-\\d+\\.html$"), "").removeSuffix(".html")
 
         for (i in 2..totalPages) {
@@ -193,6 +194,17 @@ class AcgxmhCos : ParsedHttpSource() {
         val title = document.selectFirst("h1.title")?.text() ?: return 1
         val match = Regex("\\[(\\d+)P\\]").find(title)
         return match?.groupValues?.get(1)?.toIntOrNull() ?: 1
+    }
+
+    override fun imageRequest(page: Page): Request {
+        val referer = page.url.let { url ->
+            if (url.startsWith("http")) url else "$baseUrl${url}"
+        }
+        val newHeaders = headersBuilder()
+            .set("Referer", referer)
+            .add("Accept", "image/webp,image/apng,image/*,*/*;q=0.8")
+            .build()
+        return GET(page.imageUrl!!, newHeaders)
     }
 
     override fun imageUrlParse(document: Document): String = document.selectFirst("p.manga-picture img")?.attr("src")
